@@ -76,6 +76,7 @@ let
     "RadioAtlas.qml"
     "Globe.qml"
     "RadioModel.js"
+    "manifest.json" # radio-fetch and radio-player read the version for the user agent
     "radio-favicon"
     "radio-fetch"
     "radio-mpris"
@@ -158,6 +159,23 @@ stdenvNoCC.mkDerivation {
     fonts_conf=$(sed -n "s/^export FONTCONFIG_FILE=\''${FONTCONFIG_FILE-'\(.*\)'}$/\1/p" "$out/bin/radio-atlas")
     if [[ -z $fonts_conf ]] || [[ -z $(FONTCONFIG_FILE=$fonts_conf HOME=$TMPDIR ${lib.getExe' fontconfig "fc-list"} ':charset=f04b' family) ]]; then
       echo "No font for the icon glyphs" >&2
+      exit 1
+    fi
+    # The panel and helpers locate data and each other next to themselves;
+    # every such reference must ship, or the helper dies at runtime.
+    app=$out/share/radio-atlas
+    missing=0
+    while read -r ref; do
+      if [[ ! -e $app/$ref ]]; then
+        echo "Referenced but not installed: $ref" >&2
+        missing=1
+      fi
+    done < <(
+      grep -ohE 'resolvedUrl\("[^"]+"\)' "$app"/*.qml | sed -E 's/^resolvedUrl\("(.*)"\)$/\1/'
+      grep -ohE '\$script_dir/[A-Za-z0-9._/-]+' "$app"/radio-* | sed 's|^\$script_dir/||'
+      grep -ohE '(parent / |with_name\()"[A-Za-z0-9._-]+"' "$app"/radio-* | grep -oE '"[^"]+"' | tr -d '"'
+    )
+    if (( missing )); then
       exit 1
     fi
     runHook postInstallCheck
