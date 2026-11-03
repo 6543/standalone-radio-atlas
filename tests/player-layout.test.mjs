@@ -160,7 +160,6 @@ TestCase {
     compare(fetchPath, directory + "/radio-fetch")
     compare(playerPath, directory + "/radio-player")
     compare(statePath, directory + "/radio-state")
-    compare(windowPath, directory + "/radio-window")
     compare(countriesPath, directory + "/assets/countries.json")
     compare(countryNamesPath, directory + "/assets/country-search.json")
     compare(barWidget.playerPath, playerPath)

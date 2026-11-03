@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Standalone launcher: reuse the running Radio Atlas window through Quickshell
+# IPC, or start a single new instance.
+set -euo pipefail
+
+: "${RADIO_ATLAS_DIR:?Radio Atlas requires RADIO_ATLAS_DIR}"
+unset RADIO_ATLAS_ACTION
+
+usage() {
+  echo "usage: radio-atlas [open|toggle|random|stop|resume]" >&2
+  exit 2
+}
+
+call_running() {
+  quickshell ipc -p "$RADIO_ATLAS_DIR" call radio-atlas "$1" 2>/dev/null
+}
+
+start() {
+  # --no-duplicate makes a racing second launch exit instead of opening twice.
+  RADIO_ATLAS_ACTION=$1 exec quickshell -n -p "$RADIO_ATLAS_DIR"
+}
+
+action=${1:-open}
+(( $# <= 1 )) || usage
+case "$action" in
+  open | toggle)
+    call_running "$action" || start open
+    ;;
+  random)
+    call_running random || start random
+    ;;
+  stop | resume)
+    exec "$RADIO_ATLAS_DIR/radio-player" "$action"
+    ;;
+  *)
+    usage
+    ;;
+esac
