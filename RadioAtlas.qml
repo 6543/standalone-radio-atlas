@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
@@ -141,30 +140,10 @@ Item {
   property color mapLand: lightTheme ? "#a9aaa6" : "#283039"
   property color mapGrid: lightTheme ? "#3f454a" : "#7d8791"
 
-  property bool windowFrameReady: false
-  property string pendingOpenPayload: ""
-  // Before mapping, panel.screen can still be Quickshell's default screen.
-  readonly property var windowScreen: {
-    if (panel.backingWindowVisible) return panel.screen
-    var monitor = Hyprland.focusedMonitor
-    return monitor ? Quickshell.screens.find(function(screen) {
-      return screen.name === monitor.name
-    }) || null : null
-  }
-  readonly property size preferredWindowSize: {
-    var screen = windowScreen
-    if (!screen) return Qt.size(Style.space(1180), Style.space(760))
-    var monitor = Hyprland.monitorFor(screen)
-    var reserved = monitor && monitor.lastIpcObject.reserved || [0, 0, 0, 0]
-    var widthMargin = Math.max(Style.space(60), reserved[0] + reserved[2] + Style.space(40))
-    var heightMargin = Math.max(Style.space(80), reserved[1] + reserved[3] + Style.space(40))
-    return Qt.size(Math.max(1, Math.min(Style.space(1180), screen.width - widthMargin)),
-      Math.max(1, Math.min(Style.space(760), screen.height - heightMargin)))
-  }
-  readonly property int preferredWidth: preferredWindowSize.width
-  readonly property int preferredHeight: preferredWindowSize.height
-  readonly property string windowPath:
-    decodeURIComponent(Qt.resolvedUrl("radio-window").toString().replace(/^file:\/\//, ""))
+  // An ordinary toplevel: the compositor owns placement and size, so this is
+  // only the initial size request.
+  readonly property int preferredWidth: Style.space(1180)
+  readonly property int preferredHeight: Style.space(760)
   readonly property int cardWidth: panel.width
   readonly property int cardHeight: panel.height
   // Base outer inset (close-button edge spacing) used for every pane edge.
@@ -225,16 +204,8 @@ Item {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  function registerWindowSetup() {
-    if (windowSetupProcess.running) return
-    windowSetupProcess.command = [windowPath, String(preferredWidth), String(preferredHeight)]
-    windowSetupProcess.running = true
-  }
-
   function open(payloadJson) {
-    pendingOpenPayload = payloadJson || "{}"
-    Hyprland.refreshMonitors()
-    registerWindowSetup()
+    openWindow(payloadJson)
   }
 
   function openWindow(payloadJson) {
@@ -243,10 +214,6 @@ Item {
 
     opened = true
     worldExpansionMisses = 0
-    if (!panel.visible) {
-      windowFrameReady = false
-      windowRevealTimer.stop()
-    }
     panel.visible = true
     fetchError = ""
     loadState()
@@ -259,13 +226,10 @@ Item {
   }
 
   function close() {
-    pendingOpenPayload = ""
     helpVisible = false
     outputMenuOpen = false
     globe.stopKineticRotation(true)
     opened = false
-    windowFrameReady = false
-    windowRevealTimer.stop()
     panel.visible = false
     worldExpandTimer.stop()
     if (worldExpandProcess.running) worldExpandProcess.running = false
@@ -275,30 +239,6 @@ Item {
     close()
     if (shell && typeof shell.hide === "function")
       shell.hide((manifest && manifest.id) || "akshar.radio-atlas")
-  }
-
-  function scheduleWindowReveal() {
-    if (windowFrameReady || !panel.visible || !panel.backingWindowVisible) return
-    windowRevealTimer.restart()
-  }
-
-  function handleHyprlandEvent(event) {
-    var eventName = String(event && event.name || "")
-    if (eventName === "configreloaded") {
-      windowSetupReloadTimer.restart()
-      return
-    }
-    if (!opened || eventName !== "openwindow") return
-    var parts = []
-    try {
-      parts = event.parse(4)
-    } catch (error) {
-      parts = String(event && event.data || "").split(",")
-    }
-    var windowClass = String(parts[2] || "")
-    if (windowClass === "org.omarchy.screensaver") {
-      dismiss()
-    }
   }
 
   function highlightStationCountry(station, focusGlobe) {
@@ -1039,27 +979,6 @@ Item {
   }
 
   Process {
-    id: windowSetupProcess
-    command: []
-    onExited: function(exitCode) {
-      if (!root.pendingOpenPayload) return
-      // The helper uses exit 2 when Lua window rules are unavailable.
-      if (exitCode !== 0 && exitCode !== 2) {
-        console.warn("Radio Atlas window setup failed with exit code", exitCode)
-        root.dismiss()
-        return
-      }
-      if (command[1] !== String(root.preferredWidth) || command[2] !== String(root.preferredHeight)) {
-        root.registerWindowSetup()
-        return
-      }
-      var payload = root.pendingOpenPayload
-      root.pendingOpenPayload = ""
-      root.openWindow(payload)
-    }
-  }
-
-  Process {
     id: statusInitProcess
     command: []
     onExited: function(exitCode) {
@@ -1457,22 +1376,6 @@ Item {
   }
 
   Timer {
-    id: windowSetupReloadTimer
-    interval: 100
-    repeat: false
-    onTriggered: root.registerWindowSetup()
-  }
-
-  Timer {
-    id: windowRevealTimer
-    interval: 50
-    repeat: false
-    onTriggered: {
-      if (panel.visible && panel.backingWindowVisible) root.windowFrameReady = true
-    }
-  }
-
-  Timer {
     id: volumeTimer
     interval: 90
     repeat: false
@@ -1480,14 +1383,8 @@ Item {
   }
 
   Component.onCompleted: {
-    registerWindowSetup()
     statusInitProcess.command = [playerPath, "status"]
     statusInitProcess.running = true
-  }
-
-  Connections {
-    target: Hyprland
-    function onRawEvent(event) { root.handleHyprlandEvent(event) }
   }
 
   FloatingWindow {
@@ -1497,16 +1394,11 @@ Item {
     color: root.background
     implicitWidth: root.preferredWidth
     implicitHeight: root.preferredHeight
-    minimumSize: Qt.size(Math.min(Style.space(800), root.preferredWidth), Math.min(Style.space(560), root.preferredHeight))
-    HyprlandWindow.opacity: root.windowFrameReady ? 1 : 0
+    minimumSize: Qt.size(Style.space(800), Style.space(560))
 
     onVisibleChanged: {
-      if (visible) root.scheduleWindowReveal()
       if (!visible && root.opened) root.dismiss()
     }
-    onBackingWindowVisibleChanged: root.scheduleWindowReveal()
-    onWidthChanged: root.scheduleWindowReveal()
-    onHeightChanged: root.scheduleWindowReveal()
 
     BorderSurface {
       id: card
