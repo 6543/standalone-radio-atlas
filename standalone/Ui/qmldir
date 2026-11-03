@@ -1,0 +1,10 @@
+module qs.Ui
+
+BarWidget 1.0 BarWidget.qml
+BorderOverlay 1.0 BorderOverlay.qml
+BorderSurface 1.0 BorderSurface.qml
+Button 1.0 Button.qml
+PanelSlider 1.0 PanelSlider.qml
+PanelToolTip 1.0 PanelToolTip.qml
+TextField 1.0 TextField.qml
+WidgetButton 1.0 WidgetButton.qml

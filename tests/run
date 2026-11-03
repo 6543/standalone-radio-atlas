@@ -27,7 +27,7 @@ jq -e '
 
 bash -n "$project_dir/radio-fetch" "$project_dir/radio-player" \
   "$project_dir/radio-sandbox" "$project_dir/radio-session" "$project_dir/radio-state" \
-  "$project_dir/radio-window" \
+  "$project_dir/standalone/radio-atlas" \
   "$project_dir/tests/fixtures/"*
 luac -p "$project_dir/radio-status.lua"
 python3 "$project_dir/tests/mpris.test.py"
@@ -47,7 +47,8 @@ python3 "$project_dir/tests/selection-writes.test.py"
 node "$project_dir/tests/keyboard.test.mjs"
 node "$project_dir/tests/pointer-selection.test.mjs"
 node "$project_dir/tests/player-layout.test.mjs"
-node "$project_dir/tests/window-sizing.test.mjs"
+node "$project_dir/tests/window-lifecycle.test.mjs"
+python3 "$project_dir/tests/standalone-launcher.test.py"
 node "$project_dir/tests/header-layout.test.mjs"
 node "$project_dir/tests/controls-layout.test.mjs"
 node "$project_dir/tests/zoom-controls.test.mjs"
@@ -171,38 +172,13 @@ sed -n '/function paintGlobe/,/^  }/p' "$project_dir/Globe.qml" \
   | rg -Fq 'if (!isFinite(globeRadius) || globeRadius <= 0) return'
 rg -Fq '  FloatingWindow {' "$project_dir/RadioAtlas.qml"
 assert_no_match 'WlrLayershell|PanelWindow' "$project_dir/RadioAtlas.qml"
-sed -n '/function openWindow(payloadJson)/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -q 'windowFrameReady = false.*panel\.visible = true' -U --multiline-dotall
 sed -n '/function close()/,/^  }/p' "$project_dir/RadioAtlas.qml" \
   | rg -Fq 'panel.visible = false'
-rg -q '^import Quickshell.Hyprland$' "$project_dir/RadioAtlas.qml"
-sed -n '/function registerWindowSetup/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'windowSetupProcess.running = true'
-sed -n '/function handleHyprlandEvent/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'event.parse(4)'
-sed -n '/function handleHyprlandEvent/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'eventName === "configreloaded"'
-sed -n '/function handleHyprlandEvent/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'windowSetupReloadTimer.restart()'
-sed -n '/id: windowSetupReloadTimer/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'onTriggered: root.registerWindowSetup()'
-sed -n '/function handleHyprlandEvent/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'org.omarchy.screensaver'
-sed -n '/function handleHyprlandEvent/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'dismiss()'
-assert_no_match 'resizewindowpixel|centerwindow|hl\.dsp\.window\.(float|resize|center|set_prop)' \
-  "$project_dir/RadioAtlas.qml"
-rg -Fq 'hl.window_rule({' "$project_dir/radio-window"
-rg -Fq 'initial_class = "^org[.]quickshell$"' "$project_dir/radio-window"
-rg -Fq 'initial_title = "^Radio Atlas$"' "$project_dir/radio-window"
-rg -Fq 'float = true' "$project_dir/radio-window"
-rg -Fq 'center = true' "$project_dir/radio-window"
-rg -Fq 'size = { $width, $height }' "$project_dir/radio-window"
-rg -Fq 'no_anim = true' "$project_dir/radio-window"
-rg -Fq 'border_size = 0' "$project_dir/radio-window"
-rg -Fq 'HyprlandWindow.opacity: root.windowFrameReady ? 1 : 0' "$project_dir/RadioAtlas.qml"
-sed -n '/function scheduleWindowReveal/,/^  }/p' "$project_dir/RadioAtlas.qml" \
-  | rg -Fq 'windowRevealTimer.restart()'
+# Standalone: an ordinary Wayland toplevel; no compositor- or Omarchy-specific hooks.
+assert_no_match 'Hyprland|hyprctl|radio-window|org\.omarchy\.screensaver' \
+  "$project_dir/RadioAtlas.qml" "$project_dir/standalone"
+[[ ! -e $project_dir/radio-window ]]
+assert_no_match 'omarchy/current/theme|\.config/omarchy|OMARCHY_' "$project_dir/standalone"
 assert_no_match 'Super \+ W|Super \+ Shift' "$project_dir/README.md" "$project_dir/RadioAtlas.qml"
 rg -q 'keyboardSelectionVisible' "$project_dir/RadioAtlas.qml"
 rg -q 'reportedVolume' "$project_dir/RadioAtlas.qml"

@@ -1,20 +1,13 @@
 pragma Singleton
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import "BorderGeometry.js" as Geometry
 
-// Color surfaces for the shell. Foundational palette (foreground, background,
-// accent, urgent) comes from theme/colors.toml. Per-surface roles come from
-// theme/shell.toml — generated per theme from default/themed/shell.toml.tpl,
-// or shipped directly by a theme to replace the generated file. Surfaces that
-// don't appear in shell.toml fall back to the foundational palette.
+// Color surfaces, vendored from the Omarchy shell for the standalone Radio
+// Atlas build. Upstream loads the palette from Omarchy's current theme;
+// standalone uses the built-in dark palette below. Per-surface roles fall
+// back to it exactly as they do in Omarchy when a theme omits them.
 QtObject {
   id: root
-
-  readonly property string home: Quickshell.env("HOME")
-  readonly property string stateHome: home + "/.local/state"
-  readonly property string currentThemePath: stateHome + "/omarchy/current/theme"
 
   property color foreground: "#cacccc"
   property color background: "#101315"
@@ -205,7 +198,7 @@ QtObject {
   }
 
   // Re-derive `shellValues` from theme base + user override and push it to
-  // Style. User keys win, so a machine-level `~/.config/omarchy/shell.toml`
+  // Style. User keys win over theme keys, so a machine-level override
   // survives theme switches (which replace only themeShellValues).
   function mergeShell() {
     var merged = {}
@@ -223,38 +216,5 @@ QtObject {
   function loadUserShell(raw) {
     userShellValues = parseShell(raw)
     mergeShell()
-  }
-
-  // Startup load only. Runtime theme switches push the payload explicitly
-  // through shell IPC.
-  property FileView colorsFile: FileView {
-    id: colorsFile
-    path: root.currentThemePath + "/colors.toml"
-    watchChanges: false
-    printErrors: false
-    onLoaded: root.loadColors(text())
-  }
-  property FileView shellFile: FileView {
-    id: shellFile
-    path: root.currentThemePath + "/shell.toml"
-    watchChanges: false
-    printErrors: false
-    onLoaded: root.loadShell(text())
-    onLoadFailed: root.loadShell("")
-  }
-  // Machine-level override, layered on top of whatever theme is active. This
-  // is where `omarchy display text size` writes `[font] base-size`. Watched so the
-  // CLI takes effect live without restarting the shell; absent by default.
-  property FileView userShellFile: FileView {
-    id: userShellFile
-    path: root.home + "/.config/omarchy/shell.toml"
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.loadUserShell(text())
-    // Re-read on change (including first creation) before loading — `text()`
-    // is stale in the change signal itself, so route both paths through reload
-    // → onLoaded to always parse fresh content.
-    onFileChanged: reload()
-    onLoadFailed: root.loadUserShell("")
   }
 }

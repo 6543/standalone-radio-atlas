@@ -1,31 +1,11 @@
 pragma Singleton
 import QtQuick
-import Quickshell
-import Quickshell.Hyprland
-import Quickshell.Io
 
-// Shared structural style tokens for the shell. Color is the palette
-// singleton; Style holds everything else themes can influence — corner
-// rounding, gap to screen edges, state affordances, spacing, typography
-// scale, and bar dimensions.
-//
-// `cornerRadius` mirrors Hyprland's `decoration:rounding`. `gapsOut` is
-// half of Hyprland's `general:gaps_out` — Hyprland's value works well as
-// a window-to-window gap but feels too cavernous when used as the
-// distance from a panel/notification to the screen edge, so the shell
-// halves it. Themes and user Hyprland config own those values; the
-// shell picks them up by re-running `hyprctl getoption` on startup and
-// after theme IPC applies a theme.
-//
-// Typography, spacing, and bar size come from theme/shell.toml.
-// `[font] base-size` is the rem root; every `Style.font.<token>` derives
-// from it via the scale multipliers below unless the theme pins that
-// specific token. `[spacing] scale` multiplies shared margins, gaps,
-// padding, controls, and panel dimensions while preserving each component's
-// proportions; by default it also tracks `base-size`. `[bar]
-// size-horizontal` / `size-vertical` set the cross-axis dimension for
-// top/bottom and left/right bars at the default 12px font size; by default
-// those dimensions scale with `base-size` so larger fonts don't clip.
+// Shared structural style tokens, vendored from the Omarchy shell for the
+// standalone Radio Atlas build. Upstream reads rounding, gaps and animation
+// state from the compositor and typography overrides from Omarchy's theme;
+// standalone keeps the built-in defaults (square corners, 12px base font,
+// "monospace" fontconfig family) so it behaves the same on any compositor.
 QtObject {
   id: root
 
@@ -263,16 +243,9 @@ QtObject {
 
   // ---------------------------------------------------------- typography
   //
-  // `fontFamily` defaults to "monospace" so the bar and every qs.Ui
-  // component follows the fontconfig alias `omarchy-font-set` writes.
-  // Themes can override per-token via [font] in shell.toml, but the
-  // family stays system-wide.
+  // `fontFamily` follows the system's fontconfig "monospace" alias.
   property string fontFamily: "monospace"
 
-  // The concrete family `monospace` resolves to right now, e.g.
-  // "JetBrainsMono Nerd Font". Bind `font.family` to `fontFamily` (so the
-  // alias path keeps working when the user runs `omarchy font set`), but
-  // read `resolvedFontFamily` when you want to *display* what's drawing.
   property string resolvedFontFamily: "monospace"
 
   // The only sanity floor is 1px. Themes and users can make this as large
@@ -310,14 +283,7 @@ QtObject {
     return fallback
   }
 
-  // The menu, polkit, emojis, and clipboard surfaces honor an
-  // OMARCHY_MENU_FONT override for users who want a different family on the
-  // summoned popups than on the bar. Resolved once at startup; an empty env
-  // value falls back to the shared fontconfig alias.
-  readonly property string menuFontFamily: {
-    var override = Quickshell.env("OMARCHY_MENU_FONT")
-    return (override && override.length > 0) ? override : fontFamily
-  }
+  readonly property string menuFontFamily: fontFamily
 
   readonly property QtObject font: QtObject {
     readonly property string family: root.fontFamily
@@ -348,45 +314,10 @@ QtObject {
     readonly property int statusSlot:     root.barToken("status-slot",     21)
   }
 
-  // Off with Hyprland's own animations, as `omarchy toggle animations` turns
-  // them off for machines that render on the CPU. Every shell animation runs
-  // for Style.duration(ms), which is then 0, so nothing is drawn in between.
   property bool reduceMotion: false
 
   function duration(ms) {
     return reduceMotion ? 0 : ms
-  }
-
-  function refresh() {
-    hyprctlProc.running = true
-    gapsOutProc.running = true
-    animationsProc.running = true
-  }
-
-  function scheduleRefresh() {
-    refreshTimer.restart()
-  }
-
-  function applyRoundingJson(raw) {
-    try {
-      var json = JSON.parse(raw || "{}")
-      var n = Number(json.int)
-      if (isFinite(n) && n >= 0) cornerRadius = n
-    } catch (e) {
-      // hyprctl missing / Hyprland not running — leave the previous value.
-    }
-  }
-
-  function applyGapsOutJson(raw) {
-    try {
-      var json = JSON.parse(raw || "{}")
-      var css = String(json.css || "")
-      var parts = css.match(/-?\d+(?:\.\d+)?/g) || []
-      var n = parts.length > 0 ? Number(parts[0]) : Number(json.int)
-      if (isFinite(n) && n >= 0) gapsOut = Math.max(0, Math.round(n / 2))
-    } catch (e) {
-      // hyprctl missing / Hyprland not running — leave the previous value.
-    }
   }
 
   // Pull typography, bar dimensions, state tokens, and spacing out of the
@@ -448,103 +379,5 @@ QtObject {
     barScaleWithFont = nextBarScaleWithFont
     spacingOverrides = spacingOut
     styleOverrides = styleOut
-  }
-
-  property Process hyprctlProc: Process {
-    id: hyprctlProc
-    command: ["hyprctl", "-j", "getoption", "decoration:rounding"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyRoundingJson(text)
-    }
-  }
-
-  property Process animationsProc: Process {
-    id: animationsProc
-    command: ["hyprctl", "-j", "getoption", "animations:enabled"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          root.reduceMotion = JSON.parse(text || "{}").bool === false
-        } catch (e) {
-          // hyprctl missing / Hyprland not running — leave the previous value.
-        }
-      }
-    }
-  }
-
-  // A reload is when the animations toggle, a theme or the user's own config
-  // lands, and Hyprland only announces it once the new values are in effect.
-  property Connections hyprlandEvents: Connections {
-    target: Hyprland
-    function onRawEvent(event) {
-      if (event && String(event.name) === "configreloaded") root.refresh()
-    }
-  }
-
-  property Process gapsOutProc: Process {
-    id: gapsOutProc
-    command: ["hyprctl", "-j", "getoption", "general:gaps_out"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyGapsOutJson(text)
-    }
-  }
-
-  // Resolve the fontconfig alias to a concrete family name. `omarchy font
-  // set <name>` rewrites ~/.config/fontconfig/fonts.conf and restarts the
-  // shell, but rerun on file change anyway so manual edits propagate too.
-  function resolveFontFamily() {
-    fcMatchProc.running = true
-  }
-
-  property Process fcMatchProc: Process {
-    id: fcMatchProc
-    command: ["fc-match", "-f", "%{family[0]}", "monospace"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var name = String(text || "").trim()
-        if (name.length > 0) root.resolvedFontFamily = name
-      }
-    }
-  }
-
-  property FileView fontconfigFile: FileView {
-    path: Quickshell.env("HOME") + "/.config/fontconfig/fonts.conf"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.resolveFontFamily()
-    onLoaded: root.resolveFontFamily()
-    onLoadFailed: root.resolveFontFamily()
-  }
-
-  // Re-poll Hyprland a beat after either input file changes. Hyprland's
-  // auto-reload runs asynchronously when its sourced .lua files change,
-  // so racing it with an immediate hyprctl gives the old value. 200ms is
-  // generous enough for Hyprland to settle without being user-visible.
-  property Timer refreshTimer: Timer {
-    id: refreshTimer
-    interval: 200
-    repeat: false
-    onTriggered: root.refresh()
-  }
-
-  // `omarchy toggle window-gaps` creates/removes this flag file. Hyprland
-  // reloads its config when sourced files change, then hyprctl reflects
-  // the new effective value.
-  property FileView windowNoGapsToggle: FileView {
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/toggles/hypr/window-no-gaps.lua"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: refreshTimer.restart()
-    onLoaded: refreshTimer.restart()
-    onLoadFailed: refreshTimer.restart()
-  }
-
-  Component.onCompleted: {
-    refresh()
-    resolveFontFamily()
   }
 }
